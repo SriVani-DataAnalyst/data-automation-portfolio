@@ -1,0 +1,78 @@
+'Tool to find mismatches between Oracle and Redshift dumps
+'Created by Sri Vani
+Sub ReconcileData_Final()
+    Dim tStart As Double
+    tStart = Timer 'tracking performance
+    
+    On Error GoTo err_handler
+    
+    'Optimize speed
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    
+    Dim wb As Workbook
+    Set wb = ThisWorkbook
+    
+    Dim wsO As Worksheet, wsR As Worksheet, wsReport As Worksheet
+    Set wsO = wb.Sheets("Oracle_Extract")
+    Set wsR = wb.Sheets("Redshift_Extract")
+    Set wsReport = wb.Sheets("Discrepancy_Report")
+    
+    'Load data to variants to avoid excel lag/crashes
+    Dim arrO As Variant, arrR As Variant
+    arrO = wsO.UsedRange.Value
+    arrR = wsO.UsedRange.Value
+    
+    'Dictionary for fast lookups
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    Dim r As Long
+    Dim k As String
+    
+    'Populate map from Oracle sheet
+    For r = 2 To UBound(arrO, 1)
+        k = Trim(CStr(arrO(r, 1))) 'Using Order_ID/Seller_ID
+        If k <> "" Then
+            dict(k) = arrO(r, 5) 'capturing the main metric status column
+        End If
+    Next r
+    
+    'Clear old records
+    wsReport.Cells.Clear
+    wsReport.Range("A1:B1").Value = Array("Record_ID", "Issue_Type")
+    
+    Dim outRow As Long
+    outRow = 2
+    
+    'Loop Redshift array and cross check
+    For r = 2 To UBound(arrR, 1)
+        k = Trim(CStr(arrR(r, 1)))
+        
+        If k <> "" Then
+            If Not dict.Exists(k) Then
+                'Record missing entirely from oracle
+                wsReport.Cells(outRow, 1).Value = k
+                wsReport.Cells(outRow, 2).Value = "Missing from Oracle"
+                outRow = outRow + 1
+            ElseIf dict(k) <> arrR(r, 5) Then
+                'Data mismatch found
+                wsReport.Cells(outRow, 1).Value = k
+                wsReport.Cells(outRow, 2).Value = "Status Mismatch"
+                outRow = outRow + 1
+            End If
+        End If
+    Next r
+    
+    'Reset excel settings
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    
+    MsgBox "Done! Found " & (outRow - 2) & " issues in " & Round(Timer - tStart, 2) & "s", vbInformation
+    Exit Sub
+
+err_handler:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    MsgBox "Error: " & Err.Description, vbCritical
+End Sub
